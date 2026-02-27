@@ -22,3 +22,49 @@ notifications:
   send_zero_deletion_summaries: false
 
 rooms_allowlist: []
+
+# AI-rendered summaries (Irina voice)
+ai_summary:
+  enabled: false
+  characters_api_url: "http://192.168.1.59:8091"
+  irina_character_id: "irina"
+  cathy_api_url: "http://192.168.1.59:8100"
+  cathy_api_key: null
+  timeout_seconds: 6
+  connect_timeout_seconds: 2
+  max_tokens: 180
+  temperature: 0.2
+  top_p: 0.9
+  max_render_attempts: 1
+  min_seconds_between_calls: 30
+  fallback_system_prompt: "You are Irina, the Catcord maintenance bot. You write short, calm, factual ops updates."
+
+# AI-rendered summaries
+ai_summary:
+  enabled: false
+  characters_api_url: "http://192.168.1.59:8091"
+  character_id: "irina"
+  cathy_api_url: "http://192.168.1.59:8100"
+  cathy_api_key: null
+  timeout_seconds: 6
+  connect_timeout_seconds: 2
+  max_tokens: 180
+  temperature: 0.2
+  top_p: 0.9
+  min_seconds_between_calls: 30
+  fallback_system_prompt: "You are a maintenance bot. Write short, calm, factual ops updates."
+
+# AI-rendered summaries
+ai_summary:
+  enabled: false
+  characters_api_url: "http://192.168.1.59:8091"
+  character_id: "irina"
+  cathy_api_url: "http://192.168.1.59:8100"
+  cathy_api_key: null
+  timeout_seconds: 6
+  connect_timeout_seconds: 2
+  max_tokens: 180
+  temperature: 0.2
+  top_p: 0.9
+  min_seconds_between_calls: 30
+  fallback_system_prompt: "You are a maintenance bot. Write short, calm, factual ops updates."

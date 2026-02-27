@@ -4,10 +4,11 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 from mautrix.types import EventType, RoomID, EventID, MessageEvent, PaginationDirection
 from catcord_bots.matrix import MatrixSession, send_text
 from catcord_bots.invites import join_all_invites
+from catcord_bots.ai_summary import AISummaryRenderer
 
 
 def get_disk_usage_ratio(path: str) -> float:
@@ -123,6 +124,22 @@ class Policy:
     emergency: float = 0.92
 
 
+@dataclass
+class AISummaryConfig:
+    enabled: bool = False
+    characters_api_url: str = "http://192.168.1.59:8091"
+    character_id: str = "irina"
+    cathy_api_url: str = "http://192.168.1.59:8100"
+    cathy_api_key: Optional[str] = None
+    timeout_seconds: float = 6
+    connect_timeout_seconds: float = 2
+    max_tokens: int = 180
+    temperature: float = 0.2
+    top_p: float = 0.9
+    min_seconds_between_calls: int = 30
+    fallback_system_prompt: str = "You are a maintenance bot. Write short, calm, factual ops updates."
+
+
 async def run_retention(
     session: MatrixSession,
     conn: sqlite3.Connection,
@@ -131,7 +148,9 @@ async def run_retention(
     notifications_room: Optional[str],
     send_zero: bool,
     dry_run: bool,
+    ai_cfg: Optional[AISummaryConfig] = None,
 ) -> None:
+    start_time = datetime.now()
     cutoff_img = int((datetime.now() - timedelta(days=policy.image_days)).timestamp() * 1000)
     cutoff_non = int((datetime.now() - timedelta(days=policy.non_image_days)).timestamp() * 1000)
     cur = conn.execute("""
@@ -143,11 +162,17 @@ async def run_retention(
     """, (cutoff_img, cutoff_non))
     deleted = 0
     freed = 0
+    deleted_images = 0
+    deleted_non_images = 0
     for event_id, room_id, mxc_uri, mimetype, size, ts in cur.fetchall():
         paths = find_media_files(media_root, mxc_uri)
         if dry_run:
             print(f"[DRY-RUN] Would redact+delete {event_id} files={len(paths)}")
             deleted += 1
+            if mimetype.startswith("image/"):
+                deleted_images += 1
+            else:
+                deleted_non_images += 1
             continue
         try:
             await session.client.redact(RoomID(room_id), EventID(event_id), reason="Catcord cleanup: retention")
@@ -158,11 +183,66 @@ async def run_retention(
             conn.execute("DELETE FROM uploads WHERE event_id = ?", (event_id,))
             conn.commit()
             deleted += 1
+            if mimetype.startswith("image/"):
+                deleted_images += 1
+            else:
+                deleted_non_images += 1
         except Exception as e:
             print(f"retention failed {event_id}: {e}")
+    
     if notifications_room and (deleted > 0 or send_zero or dry_run):
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        
+        summary_payload = {
+            "run_id": f"{start_time.isoformat()}Z-retention",
+            "mode": "retention",
+            "server": "catcord",
+            "policy": {
+                "retention_days_images": policy.image_days,
+                "retention_days_non_images": policy.non_image_days,
+            },
+            "actions": {
+                "deleted_count": deleted,
+                "freed_gb": round(freed / 1024 / 1024 / 1024, 2),
+                "deleted_by_type": {
+                    "images": deleted_images,
+                    "non_images": deleted_non_images,
+                },
+            },
+            "timing": {
+                "started_at": start_time.isoformat() + "Z",
+                "ended_at": end_time.isoformat() + "Z",
+                "duration_seconds": int(duration),
+            },
+        }
+        
         prefix = "[DRY-RUN] " if dry_run else ""
-        await send_text(session, notifications_room, f"{prefix}🧹 Retention: deleted={deleted} freed={freed/1024/1024:.1f}MB")
+        fallback = f"{prefix}🧹 Retention: deleted={deleted} freed={freed/1024/1024:.1f}MB"
+        
+        message = fallback
+        if ai_cfg and ai_cfg.enabled:
+            try:
+                renderer = AISummaryRenderer(
+                    characters_api_url=ai_cfg.characters_api_url,
+                    character_id=ai_cfg.character_id,
+                    cathy_api_url=ai_cfg.cathy_api_url,
+                    fallback_system_prompt=ai_cfg.fallback_system_prompt,
+                    cathy_api_key=ai_cfg.cathy_api_key,
+                    timeout_seconds=ai_cfg.timeout_seconds,
+                    connect_timeout_seconds=ai_cfg.connect_timeout_seconds,
+                    max_tokens=ai_cfg.max_tokens,
+                    temperature=ai_cfg.temperature,
+                    top_p=ai_cfg.top_p,
+                    min_seconds_between_calls=ai_cfg.min_seconds_between_calls,
+                )
+                rendered = await renderer.render(summary_payload)
+                if rendered:
+                    message = prefix + rendered
+            except Exception:
+                pass
+        
+        await send_text(session, notifications_room, message)
 
 
 async def run_pressure(
@@ -173,7 +253,9 @@ async def run_pressure(
     notifications_room: Optional[str],
     send_zero: bool,
     dry_run: bool,
+    ai_cfg: Optional[AISummaryConfig] = None,
 ) -> None:
+    start_time = datetime.now()
     used = get_disk_usage_ratio(media_root)
     if used < policy.pressure:
         print(f"disk usage {used:.3f} < {policy.pressure:.3f}, no action")
@@ -185,6 +267,9 @@ async def run_pressure(
     """)
     deleted = 0
     freed = 0
+    deleted_images = 0
+    deleted_non_images = 0
+    disk_before = used * 100
     for event_id, room_id, mxc_uri, mimetype, size, ts in cur.fetchall():
         used = get_disk_usage_ratio(media_root)
         if used < policy.pressure:
@@ -193,6 +278,10 @@ async def run_pressure(
         if dry_run:
             print(f"[DRY-RUN] Would redact+delete {event_id} files={len(paths)} used={used:.3f}")
             deleted += 1
+            if mimetype.startswith("image/"):
+                deleted_images += 1
+            else:
+                deleted_non_images += 1
             continue
         try:
             reason = "emergency" if used >= policy.emergency else "pressure"
@@ -204,8 +293,70 @@ async def run_pressure(
             conn.execute("DELETE FROM uploads WHERE event_id = ?", (event_id,))
             conn.commit()
             deleted += 1
+            if mimetype.startswith("image/"):
+                deleted_images += 1
+            else:
+                deleted_non_images += 1
         except Exception as e:
             print(f"pressure failed {event_id}: {e}")
+    
     if notifications_room and (deleted > 0 or send_zero or dry_run):
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        disk_after = get_disk_usage_ratio(media_root) * 100
+        
+        summary_payload = {
+            "run_id": f"{start_time.isoformat()}Z-pressure",
+            "mode": "pressure",
+            "server": "catcord",
+            "disk": {
+                "mount": media_root,
+                "percent_before": round(disk_before, 1),
+                "percent_after": round(disk_after, 1),
+                "pressure_threshold": policy.pressure * 100,
+                "emergency_threshold": policy.emergency * 100,
+            },
+            "policy": {
+                "prefer_large_non_images": True,
+            },
+            "actions": {
+                "deleted_count": deleted,
+                "freed_gb": round(freed / 1024 / 1024 / 1024, 2),
+                "deleted_by_type": {
+                    "images": deleted_images,
+                    "non_images": deleted_non_images,
+                },
+            },
+            "timing": {
+                "started_at": start_time.isoformat() + "Z",
+                "ended_at": end_time.isoformat() + "Z",
+                "duration_seconds": int(duration),
+            },
+        }
+        
         prefix = "[DRY-RUN] " if dry_run else ""
-        await send_text(session, notifications_room, f"{prefix}⚠️ Pressure: deleted={deleted} freed={freed/1024/1024:.1f}MB")
+        fallback = f"{prefix}⚠️ Pressure: deleted={deleted} freed={freed/1024/1024:.1f}MB"
+        
+        message = fallback
+        if ai_cfg and ai_cfg.enabled:
+            try:
+                renderer = AISummaryRenderer(
+                    characters_api_url=ai_cfg.characters_api_url,
+                    character_id=ai_cfg.character_id,
+                    cathy_api_url=ai_cfg.cathy_api_url,
+                    fallback_system_prompt=ai_cfg.fallback_system_prompt,
+                    cathy_api_key=ai_cfg.cathy_api_key,
+                    timeout_seconds=ai_cfg.timeout_seconds,
+                    connect_timeout_seconds=ai_cfg.connect_timeout_seconds,
+                    max_tokens=ai_cfg.max_tokens,
+                    temperature=ai_cfg.temperature,
+                    top_p=ai_cfg.top_p,
+                    min_seconds_between_calls=ai_cfg.min_seconds_between_calls,
+                )
+                rendered = await renderer.render(summary_payload)
+                if rendered:
+                    message = prefix + rendered
+            except Exception:
+                pass
+        
+        await send_text(session, notifications_room, message)
