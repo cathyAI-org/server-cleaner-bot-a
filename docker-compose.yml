@@ -3,8 +3,8 @@ version: "3.8"
 services:
   cleaner:
     build:
-      context: .
-      dockerfile: cleaner/Dockerfile
+      context: ./cleaner
+      dockerfile: Dockerfile
     image: catcord/cleaner:latest
     container_name: cleaner_bot
     restart: "no"
