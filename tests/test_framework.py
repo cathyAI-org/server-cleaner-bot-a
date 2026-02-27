@@ -44,7 +44,7 @@ class TestFramework:
         )
         payload = {"test": "data", "count": 5}
         prompt = renderer._build_user_prompt(payload)
-        assert "JSON:" in prompt
+        assert "JSON payload:" in prompt
         assert "STRICT RULES:" in prompt
         assert "Do NOT invent" in prompt
         assert '"test": "data"' in prompt

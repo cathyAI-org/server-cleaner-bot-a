@@ -149,22 +149,19 @@ class PersonalityRenderer:
     def _build_user_prompt(self, summary_payload: Dict[str, Any]) -> str:
         payload_str = json.dumps(summary_payload, ensure_ascii=False, sort_keys=True)
         return (
-            "You will be given a JSON payload with facts.\n"
-            "Write a short ops update in Irina's voice.\n\n"
-            "Output EXACTLY one line in this format:\n"
+            "Return ONLY a JSON object with this schema:\n"
+            '{"text": "<ONE LINE MESSAGE>"}\n\n'
+            "The text value MUST be exactly one line and must follow this exact format:\n"
             "Disk usage: <percent_before>% (threshold <pressure_threshold>%). No deletions. Freed: <freed_gb> GB.\n\n"
             "STRICT RULES:\n"
-            "- Only use facts present in the JSON.\n"
+            "- Only use facts present in the JSON payload below.\n"
             "- Do NOT invent deletions, rooms, users, causes, or numbers.\n"
-            "- Do NOT mention uptime, 'since', 'operational since', 'elapsed', or any timestamps unless they appear verbatim in JSON.\n"
+            "- Do NOT mention uptime, 'since', 'operational since', 'elapsed', or any timestamps.\n"
             "- Do NOT use relative time words like 'today' or 'yesterday'.\n"
-            "- If actions.deleted_count is 0, you MUST say there were no deletions and you MUST NOT imply anything was deleted.\n"
+            "- If actions.deleted_count is 0, you MUST say 'No deletions'.\n"
             "- If actions.deleted_count > 0, you MUST include deleted_count and freed_gb.\n"
-            "- If disk.percent_before < disk.pressure_threshold, say below threshold.\n"
-            "- Keep it under ~700 characters.\n"
-            "- Include key numeric facts exactly as provided.\n"
-            "- Plain text only.\n\n"
-            f"JSON:\n{payload_str}\n"
+            "- Include key numeric facts exactly as provided.\n\n"
+            f"JSON payload:\n{payload_str}\n"
         )
 
     async def render(self, summary_payload: Dict[str, Any]) -> Optional[str]:
@@ -223,11 +220,12 @@ class PersonalityRenderer:
                             body = {
                                 "model": self.cathy_api_model,
                                 "stream": False,
+                                "format": "json",
                                 "messages": messages,
                                 "options": {
-                                    "temperature": self.temperature,
-                                    "num_predict": 60,
-                                    "num_ctx": 1024,
+                                    "temperature": 0.0,
+                                    "num_predict": 80,
+                                    "num_ctx": 768,
                                 },
                             }
                             r = await client.post(
@@ -237,15 +235,18 @@ class PersonalityRenderer:
                             )
                             r.raise_for_status()
                             data = r.json()
-                            text = (data.get("message") or {}).get("content", "").strip()
-                            if not text:
+                            raw = (data.get("message") or {}).get("content", "").strip()
+                            if not raw:
                                 done = data.get("done_reason") if isinstance(data, dict) else None
-                                raw = ""
+                                print(f"PersonalityRenderer: empty ollama content (attempt={attempt}) done={done}")
+                                text = ""
+                            else:
                                 try:
-                                    raw = r.text.replace("\n", " ")[:200]
-                                except Exception:
-                                    pass
-                                print(f"PersonalityRenderer: empty ollama content (attempt={attempt}) done={done} raw='{raw}'")
+                                    obj = json.loads(raw)
+                                    text = str(obj.get("text") or "").strip()
+                                except Exception as e:
+                                    print(f"PersonalityRenderer: non-json output (attempt={attempt}): {raw[:120]!r}")
+                                    text = ""
                         else:
                             body = {
                                 "model": self.cathy_api_model,
