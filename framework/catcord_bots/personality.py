@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -63,12 +64,19 @@ class PersonalityRenderer:
             headers["If-None-Match"] = self._cached_etag
 
         timeout = httpx.Timeout(
-            timeout=self.timeout_seconds,
             connect=self.connect_timeout_seconds,
+            read=self.timeout_seconds,
+            write=self.timeout_seconds,
+            pool=self.timeout_seconds,
         )
 
         async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.get(url, headers=headers)
+            try:
+                r = await client.get(url, headers=headers)
+            except httpx.TimeoutException as e:
+                print(f"PersonalityRenderer: characters_api timeout: {e!r}")
+                return self.fallback_system_prompt.strip()
+            
             if r.status_code == 304 and self._cached_prompt:
                 return self._cached_prompt
             r.raise_for_status()
@@ -100,7 +108,12 @@ class PersonalityRenderer:
         deleted_count = actions.get("deleted_count")
         freed_gb = actions.get("freed_gb")
         
-        # Check banned phrases first
+        # Must match required format
+        pattern = r"^Disk usage: .*% \(threshold .*%\)\. No deletions\. Freed: .* GB\.$"
+        if not re.match(pattern, text.strip()):
+            return False, "does not match required output format"
+        
+        # Check banned phrases
         banned_phrases = ["operational since", "uptime", "elapsed", "today", "yesterday", "since '", 'since "']
         for phrase in banned_phrases:
             if phrase in tlow:
@@ -120,23 +133,16 @@ class PersonalityRenderer:
             if "threshold" not in tlow:
                 return False, "missing word 'threshold' for pressure_threshold"
         
-        # Must correctly indicate no deletions when count is 0
+        # Must include literal "no deletions" when count is 0
         if deleted_count == 0:
-            no_deletion_phrases = [
-                "no action", "no deletions", "0 deletions", "deleted 0",
-                "deleted_count=0", "deleted_count: 0",
-                "no files were deleted",
-                "nothing was deleted",
-            ]
-            if not any(p in tlow for p in no_deletion_phrases):
-                return False, "missing 'no deletions' statement when deleted_count=0"
+            if "no deletions" not in tlow:
+                return False, "missing 'No deletions' literal"
         
-        # Must include freed_gb when deletions occurred
-        if deleted_count and deleted_count > 0:
-            if freed_gb is not None:
-                fg_str = str(freed_gb).rstrip("0").rstrip(".")
-                if fg_str not in text and f"{freed_gb:.1f}" not in text and f"{freed_gb:.2f}" not in text:
-                    return False, f"missing required freed_gb: {freed_gb}"
+        # Require freed_gb number match whenever freed_gb is present in JSON
+        if freed_gb is not None:
+            fg_str = str(freed_gb).rstrip("0").rstrip(".")
+            if fg_str not in text and f"{freed_gb:.1f}" not in text and f"{freed_gb:.2f}" not in text:
+                return False, f"missing required freed_gb: {freed_gb}"
         
         return True, ""
 
@@ -145,6 +151,8 @@ class PersonalityRenderer:
         return (
             "You will be given a JSON payload with facts.\n"
             "Write a short ops update in Irina's voice.\n\n"
+            "Output EXACTLY one line in this format:\n"
+            "Disk usage: <percent_before>% (threshold <pressure_threshold>%). No deletions. Freed: <freed_gb> GB.\n\n"
             "STRICT RULES:\n"
             "- Only use facts present in the JSON.\n"
             "- Do NOT invent deletions, rooms, users, causes, or numbers.\n"
@@ -186,36 +194,42 @@ class PersonalityRenderer:
 
             async with httpx.AsyncClient(timeout=timeout) as client:
                 for attempt in range(2):
-                    text = ""
-                    messages = list(base_messages)
-                    
-                    if attempt == 1 and last_reject_reason:
-                        forbidden = ["today", "yesterday", "operational since", "operational", "uptime", "since", "elapsed"]
-                        messages.append({
-                            "role": "user",
-                            "content": (
-                                f"Your previous draft violated rules: {last_reject_reason}\n"
-                                f"Forbidden words/phrases: {', '.join(forbidden)}\n"
-                                "Rewrite using ONLY facts from the JSON. Plain text.\n"
-                                "Use this exact structure (fill in numbers):\n"
-                                "Disk usage: <percent_before>% (threshold <pressure_threshold>%). "
-                                "No deletions. Freed: <freed_gb> GB.\n"
-                                "Keep it to ONE short sentence."
-                            )
-                        })
-                    
-                    if self.cathy_api_mode.lower() == "ollama":
-                        body = {
-                            "model": self.cathy_api_model,
-                            "stream": False,
-                            "messages": messages,
-                            "options": {
-                                "temperature": self.temperature,
-                                "num_predict": 60,
-                                "num_ctx": 1024,
-                            },
-                        }
-                        try:
+                    try:
+                        text = ""
+                        messages = list(base_messages)
+                        
+                        if attempt == 1 and last_reject_reason:
+                            disk = summary_payload.get("disk") or {}
+                            actions = summary_payload.get("actions") or {}
+                            forbidden = ["today", "yesterday", "operational since", "operational", "uptime", "since", "elapsed"]
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    f"Your previous draft violated rules: {last_reject_reason}\n"
+                                    f"Forbidden words/phrases: {', '.join(forbidden)}\n"
+                                    "Rewrite using ONLY facts from the JSON. Plain text.\n"
+                                    "Use this exact structure (fill in numbers):\n"
+                                    "Disk usage: <percent_before>% (threshold <pressure_threshold>%). "
+                                    "No deletions. Freed: <freed_gb> GB.\n"
+                                    f"Numbers to use exactly: percent_before={disk.get('percent_before')}, "
+                                    f"pressure_threshold={disk.get('pressure_threshold')}, "
+                                    f"freed_gb={actions.get('freed_gb')}, "
+                                    f"deleted_count={actions.get('deleted_count')}.\n"
+                                    "Keep it to ONE short sentence."
+                                )
+                            })
+                        
+                        if self.cathy_api_mode.lower() == "ollama":
+                            body = {
+                                "model": self.cathy_api_model,
+                                "stream": False,
+                                "messages": messages,
+                                "options": {
+                                    "temperature": self.temperature,
+                                    "num_predict": 60,
+                                    "num_ctx": 1024,
+                                },
+                            }
                             r = await client.post(
                                 f"{self.cathy_api_url.rstrip('/')}/api/chat",
                                 headers=headers,
@@ -232,53 +246,54 @@ class PersonalityRenderer:
                                 except Exception:
                                     pass
                                 print(f"PersonalityRenderer: empty ollama content (attempt={attempt}) done={done} raw='{raw}'")
-                        except httpx.TimeoutException:
-                            print(f"PersonalityRenderer: Timeout (attempt={attempt})")
+                        else:
+                            body = {
+                                "model": self.cathy_api_model,
+                                "messages": messages,
+                                "temperature": self.temperature,
+                                "top_p": self.top_p,
+                                "max_tokens": self.max_tokens,
+                                "stream": False,
+                            }
+                            r = await client.post(
+                                f"{self.cathy_api_url.rstrip('/')}/v1/chat/completions",
+                                headers=headers,
+                                json=body,
+                            )
+                            r.raise_for_status()
+                            data = r.json()
+                            text = (
+                                data.get("choices", [{}])[0]
+                                .get("message", {})
+                                .get("content", "")
+                                .strip()
+                            )
+                        
+                        if not text and attempt == 0:
+                            await asyncio.sleep(0.3)
+                            last_reject_reason = "empty output"
+                            continue
+                        
+                        if not text:
+                            return None
+                        
+                        ok, reason = self._validate_output(summary_payload, text)
+                        if not ok:
+                            print(f"PersonalityRenderer: rejected (attempt={attempt}): {reason} - {text[:100]!r}")
                             if attempt == 0:
-                                last_reject_reason = "timeout"
+                                last_reject_reason = reason
                                 continue
                             return None
-                    else:
-                        body = {
-                            "model": self.cathy_api_model,
-                            "messages": messages,
-                            "temperature": self.temperature,
-                            "top_p": self.top_p,
-                            "max_tokens": self.max_tokens,
-                            "stream": False,
-                        }
-                        r = await client.post(
-                            f"{self.cathy_api_url.rstrip('/')}/v1/chat/completions",
-                            headers=headers,
-                            json=body,
-                        )
-                        r.raise_for_status()
-                        data = r.json()
-                        text = (
-                            data.get("choices", [{}])[0]
-                            .get("message", {})
-                            .get("content", "")
-                            .strip()
-                        )
+
+                        print(f"PersonalityRenderer: accepted (attempt={attempt})")
+                        return text
                     
-                    if not text and attempt == 0:
-                        await asyncio.sleep(0.3)
-                        last_reject_reason = "empty output"
-                        continue
-                    
-                    if not text:
-                        return None
-                    
-                    ok, reason = self._validate_output(summary_payload, text)
-                    if not ok:
-                        print(f"PersonalityRenderer: rejected (attempt={attempt}): {reason} - {text[:100]!r}")
+                    except httpx.TimeoutException as e:
+                        print(f"PersonalityRenderer: Timeout (attempt={attempt}): {e!r}")
                         if attempt == 0:
-                            last_reject_reason = reason
+                            last_reject_reason = "timeout"
                             continue
                         return None
-
-                    print(f"PersonalityRenderer: accepted (attempt={attempt})")
-                    return text
 
                 return None
 

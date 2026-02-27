@@ -136,7 +136,7 @@ class PersonalityConfig:
     timeout_seconds: float = 60
     connect_timeout_seconds: float = 3
     max_tokens: int = 180
-    temperature: float = 0.2
+    temperature: float = 0.0
     top_p: float = 0.9
     min_seconds_between_calls: int = 0
     fallback_system_prompt: str = "You are a maintenance bot. Write short, calm, factual ops updates."
