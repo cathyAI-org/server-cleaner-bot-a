@@ -218,7 +218,12 @@ async def run_retention(
         }
         
         prefix = "[DRY-RUN] " if dry_run else ""
-        fallback = f"{prefix}🧹 Retention: deleted={deleted} freed={freed/1024/1024:.1f}MB"
+        freed_gb = freed / 1024 / 1024 / 1024
+        fallback = (
+            f"{prefix}🧹 Retention: deleted={deleted} "
+            f"(images={deleted_images}, non_images={deleted_non_images}), "
+            f"freed_gb={freed_gb:.2f}"
+        )
         
         message = fallback
         if ai_cfg and ai_cfg.enabled:
@@ -335,7 +340,13 @@ async def run_pressure(
         }
         
         prefix = "[DRY-RUN] " if dry_run else ""
-        fallback = f"{prefix}⚠️ Pressure: deleted={deleted} freed={freed/1024/1024:.1f}MB"
+        freed_gb = freed / 1024 / 1024 / 1024
+        fallback = (
+            f"{prefix}⚠️ Pressure cleanup: disk={disk_before:.1f}%→{disk_after:.1f}% "
+            f"(threshold={policy.pressure*100:.1f}%, emergency={policy.emergency*100:.1f}%), "
+            f"deleted={deleted} (images={deleted_images}, non_images={deleted_non_images}), "
+            f"freed_gb={freed_gb:.2f}"
+        )
         
         message = fallback
         if ai_cfg and ai_cfg.enabled:

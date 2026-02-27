@@ -4,7 +4,7 @@ import os
 from catcord_bots.config import load_yaml, FrameworkConfig
 from catcord_bots.matrix import create_client, whoami
 from catcord_bots.invites import join_all_invites
-from cleaner import init_db, sync_uploads, Policy, run_retention, run_pressure
+from cleaner import init_db, sync_uploads, Policy, run_retention, run_pressure, AISummaryConfig
 
 
 async def main_async(args):
@@ -30,6 +30,22 @@ async def main_async(args):
                 pressure=float(thr.get("pressure", 0.85)),
                 emergency=float(thr.get("emergency", 0.92)),
             )
+            
+            ai_raw = raw.get("ai_summary") or {}
+            ai_cfg = AISummaryConfig(
+                enabled=bool(ai_raw.get("enabled", False)),
+                characters_api_url=str(ai_raw.get("characters_api_url", "http://192.168.1.59:8091")),
+                character_id=str(ai_raw.get("character_id", "irina")),
+                cathy_api_url=str(ai_raw.get("cathy_api_url", "http://192.168.1.59:8100")),
+                cathy_api_key=ai_raw.get("cathy_api_key"),
+                timeout_seconds=float(ai_raw.get("timeout_seconds", 6)),
+                connect_timeout_seconds=float(ai_raw.get("connect_timeout_seconds", 2)),
+                max_tokens=int(ai_raw.get("max_tokens", 180)),
+                temperature=float(ai_raw.get("temperature", 0.2)),
+                top_p=float(ai_raw.get("top_p", 0.9)),
+                min_seconds_between_calls=int(ai_raw.get("min_seconds_between_calls", 30)),
+                fallback_system_prompt=str(ai_raw.get("fallback_system_prompt", "You are a maintenance bot. Write short, calm, factual ops updates.")),
+            )
             if args.mode == "retention":
                 await run_retention(
                     session=session,
@@ -39,6 +55,7 @@ async def main_async(args):
                     notifications_room=cfg.notifications.log_room_id,
                     send_zero=cfg.notifications.send_zero_deletion_summaries,
                     dry_run=args.dry_run,
+                    ai_cfg=ai_cfg,
                 )
             else:
                 await run_pressure(
@@ -49,6 +66,7 @@ async def main_async(args):
                     notifications_room=cfg.notifications.log_room_id,
                     send_zero=cfg.notifications.send_zero_deletion_summaries,
                     dry_run=args.dry_run,
+                    ai_cfg=ai_cfg,
                 )
         finally:
             conn.close()

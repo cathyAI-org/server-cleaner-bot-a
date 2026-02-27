@@ -21,3 +21,19 @@ notifications:
   send_zero_deletion_summaries: false
 
 rooms_allowlist: []
+
+ai_summary:
+  enabled: true
+  characters_api_url: "http://192.168.1.59:8091"
+  character_id: "irina"
+  cathy_api_url: "http://192.168.1.59:8100"
+  cathy_api_key: null
+  timeout_seconds: 6
+  connect_timeout_seconds: 2
+  max_tokens: 180
+  temperature: 0.2
+  top_p: 0.9
+  min_seconds_between_calls: 30
+  fallback_system_prompt: |
+    You are Irina, the Catcord maintenance bot.
+    Write short, calm, factual ops updates.
