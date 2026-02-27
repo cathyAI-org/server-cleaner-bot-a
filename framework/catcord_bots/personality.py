@@ -167,9 +167,6 @@ class PersonalityRenderer:
             return None
 
         try:
-            system_prompt = await self._fetch_system_prompt(client)
-            user_prompt = self._build_user_prompt(summary_payload)
-
             timeout = httpx.Timeout(
                 connect=self.connect_timeout_seconds,
                 read=self.timeout_seconds,
@@ -181,13 +178,15 @@ class PersonalityRenderer:
             if self.cathy_api_key:
                 headers["Authorization"] = f"Bearer {self.cathy_api_key}"
 
-            base_messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-            last_reject_reason = None
-
             async with httpx.AsyncClient(timeout=timeout) as client:
+                system_prompt = await self._fetch_system_prompt(client)
+                user_prompt = self._build_user_prompt(summary_payload)
+
+                base_messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+                last_reject_reason = None
                 for attempt in range(2):
                     try:
                         text = ""
