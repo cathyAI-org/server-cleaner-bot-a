@@ -8,7 +8,7 @@ Shared framework for Matrix bots with individual bot services.
 ./
   docker-compose.yml         # Bot orchestration
   framework/                 # Shared package
-    catcord_bots/           # Python package (matrix, config, ai_summary)
+    catcord_bots/           # Python package (matrix, config, personality, state)
     Dockerfile              # Base image
   cleaner/                  # Cleaner bot
     main.py                 # Entry point
@@ -20,9 +20,10 @@ Shared framework for Matrix bots with individual bot services.
 
 ## Features
 
-- **Framework**: Shared Matrix client, config parsing, AI summary rendering
+- **Framework**: Shared Matrix client, config parsing, AI summary rendering, deduplication
 - **Cleaner Bot**: Automated media cleanup with retention and pressure modes
 - **Personality**: Optional summaries with personality via characters API
+- **Deduplication**: Prevents duplicate notifications based on payload fingerprints
 
 ## Setup
 
@@ -50,6 +51,23 @@ Production:
 docker-compose run --rm cleaner --config /config/config.yaml --mode pressure
 docker-compose run --rm cleaner --config /config/config.yaml --mode retention
 ```
+
+### CLI Flags
+
+- `--mode {retention,pressure}` - Cleanup mode (required)
+- `--dry-run` - Simulate without deleting
+- `--debug` - Force send notification even if dedupe would skip
+- `--force-notify` - Force send notification even on no-action
+
+### Deduplication
+
+The bot tracks payload fingerprints in `/state/{mode}_last.fp` to prevent duplicate notifications. Messages are only sent when:
+
+- Payload changes (different deletions, disk usage, etc.)
+- `--debug` flag is used (always send)
+- `--force-notify` flag is used (always send)
+
+Use `--force-notify` for scheduled daily summaries (e.g., 01:00 pressure check) and omit it for frequent checks (e.g., 2-minute pressure monitoring).
 
 ## AI Configuration
 
