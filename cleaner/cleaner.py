@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
-from mautrix.types import EventType, RoomID, EventID, MessageEvent
+from mautrix.types import EventType, RoomID, EventID, MessageEvent, PaginationDirection
 from catcord_bots.matrix import MatrixSession, send_text
 from catcord_bots.invites import join_all_invites
 
@@ -102,13 +102,17 @@ async def sync_uploads(session: MatrixSession, conn: sqlite3.Connection, rooms_a
         rooms = [r for r in rooms if str(r) in rooms_allowlist]
     for room_id in rooms:
         try:
-            resp = await session.client.get_messages(room_id, limit=200)
-            for event in resp.chunk:
+            resp = await session.client.get_messages(
+                room_id,
+                direction=PaginationDirection.BACKWARD,
+                limit=200,
+            )
+            for event in resp.events:
                 t = str(event.type)
                 if t in ("m.room.message", "m.sticker"):
                     await log_upload(conn, event)
-        except Exception:
-            continue
+        except Exception as e:
+            print(f"Sync error in {room_id}: {e}")
 
 
 @dataclass

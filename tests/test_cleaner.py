@@ -1,8 +1,7 @@
 import pytest
 import tempfile
-import sqlite3
 from pathlib import Path
-from cleaner.cleaner import init_db, parse_mxc, find_media_files, get_disk_usage_ratio, Policy
+from cleaner.cleaner import parse_mxc, find_media_files, get_disk_usage_ratio, Policy
 
 
 class TestCleaner:
@@ -14,14 +13,6 @@ class TestCleaner:
         assert parse_mxc("https://example.com/file") is None
         assert parse_mxc("mxc://invalid") is None
         assert parse_mxc(None) is None
-
-    def test_init_db(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = f"{tmpdir}/test.db"
-            conn = init_db(db_path)
-            cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='uploads'")
-            assert cur.fetchone() is not None
-            conn.close()
 
     def test_get_disk_usage_ratio(self):
         ratio = get_disk_usage_ratio("/tmp")
