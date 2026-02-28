@@ -216,10 +216,12 @@ async def run_retention(
     action_happened = deleted > 0
     force_notify = print_effective_config
     
+    # Gate notification BEFORE building payload or calling AI
     if not force_notify and not action_happened and not send_zero:
         print(f"Not sending: send_zero disabled and no action (deleted={deleted})")
         return
     
+    # Build payload for fingerprinting
     end_time = datetime.now()
     duration = (end_time - start_time).total_seconds()
     disk_percent = used * 100
@@ -256,11 +258,13 @@ async def run_retention(
         },
     }
     
-    state_path = "/state/retention_last.fp"
-    fp = payload_fingerprint(summary_payload)
-    if not should_send(state_path, fp, force_notify):
-        print(f"Not sending: deduped (unchanged)")
-        return
+    # Check dedupe (only if send_zero enabled or action happened)
+    if send_zero or action_happened:
+        state_path = "/state/retention_last.fp"
+        fp = payload_fingerprint(summary_payload)
+        if not should_send(state_path, fp, force_notify):
+            print(f"Not sending: deduped (unchanged)")
+            return
     
     prefix = "[DRY-RUN] " if dry_run else ""
     stats = format_retention_stats(summary_payload)
