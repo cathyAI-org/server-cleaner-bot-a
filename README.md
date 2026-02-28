@@ -62,7 +62,7 @@ docker-compose run --rm cleaner --config /config/config.yaml --mode pressure --p
 
 - `--mode {retention,pressure}` - Cleanup mode (required)
 - `--dry-run` - Simulate without deleting
-- `--print-effective-config` - Force send notification for nightly summaries (overrides dedupe and send_zero)
+- `--print-effective-config` - Force send notification for nightly summaries (overrides dedupe and send_zero, prints config summary)
 
 ### Deduplication
 

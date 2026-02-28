@@ -27,22 +27,27 @@ def storage_status_label(percent: float, pressure_threshold: float, emergency_th
 
 
 def format_retention_stats(payload: Dict[str, Any]) -> str:
-    """Format retention statistics as multi-line string.
+    """Format retention statistics as multi-line block.
     
     :param payload: Retention payload dictionary
     :type payload: Dict[str, Any]
-    :return: Formatted statistics
+    :return: Formatted statistics block
     :rtype: str
     """
+    mode = payload.get("mode", "unknown")
+    server = payload.get("server", "unknown")
+    run_id = payload.get("run_id", "unknown")
+    
     disk = payload.get("disk") or {}
     actions = payload.get("actions") or {}
     timing = payload.get("timing") or {}
     
-    percent = disk.get("percent_before", 0.0)
+    percent_before = disk.get("percent_before", 0.0)
+    percent_after = disk.get("percent_after", 0.0)
     pressure_threshold = disk.get("pressure_threshold", 85.0)
     emergency_threshold = disk.get("emergency_threshold", 92.0)
     
-    status = storage_status_label(percent, pressure_threshold, emergency_threshold)
+    status = storage_status_label(percent_before, pressure_threshold, emergency_threshold)
     
     deleted = actions.get("deleted_count", 0)
     freed = actions.get("freed_gb", 0.0)
@@ -54,63 +59,46 @@ def format_retention_stats(payload: Dict[str, Any]) -> str:
     total_files = payload.get("total_files_count", 0)
     duration = timing.get("duration_seconds", 0)
     
-    result = "no action" if deleted == 0 else "cleanup performed"
-    
     lines = [
-        f"Disk: {percent:.1f}% (threshold {pressure_threshold:.1f}%)",
-        f"Storage: {status}",
-        f"Retention candidates: {candidates}",
-        f"Deleted: {deleted} (images={imgs}, non-images={non_imgs})",
-        f"Freed: {freed:.2f} GB",
+        f"mode: {mode}",
+        f"server: {server}",
+        f"run_id: {run_id}",
+        f"disk_percent_before: {percent_before:.1f}%",
+        f"disk_percent_after: {percent_after:.1f}%",
+        f"pressure_threshold: {pressure_threshold:.1f}%",
+        f"emergency_threshold: {emergency_threshold:.1f}%",
+        f"storage_status: {status}",
+        f"candidates_count: {candidates}",
+        f"deleted_count: {deleted}",
+        f"deleted_images: {imgs}",
+        f"deleted_non_images: {non_imgs}",
+        f"freed_gb: {freed:.2f}",
+        f"total_files_on_disk: {total_files}",
+        f"duration_seconds: {duration}",
     ]
-    
-    if total_files > 0:
-        lines.append(f"Files on disk: {total_files}")
-    
-    lines.extend([
-        f"Duration: {duration}s",
-        f"Result: {result}",
-    ])
     
     return "\n".join(lines)
 
 
 def format_pressure_stats(payload: Dict[str, Any]) -> str:
-    """Format pressure statistics as multi-line string.
+    """Format pressure statistics as single-line string.
     
     :param payload: Pressure payload dictionary
     :type payload: Dict[str, Any]
-    :return: Formatted statistics
+    :return: Formatted single-line statistics
     :rtype: str
     """
     disk = payload.get("disk") or {}
     actions = payload.get("actions") or {}
-    timing = payload.get("timing") or {}
     
     pb = disk.get("percent_before", 0.0)
     pa = disk.get("percent_after", 0.0)
     pressure_threshold = disk.get("pressure_threshold", 85.0)
-    emergency_threshold = disk.get("emergency_threshold", 92.0)
-    
-    status = storage_status_label(pb, pressure_threshold, emergency_threshold)
     
     deleted = actions.get("deleted_count", 0)
     freed = actions.get("freed_gb", 0.0)
-    by_type = actions.get("deleted_by_type") or {}
-    imgs = by_type.get("images", 0)
-    non_imgs = by_type.get("non_images", 0)
     
-    duration = timing.get("duration_seconds", 0)
-    
-    result = "no action" if deleted == 0 else "cleanup performed"
-    
-    lines = [
-        f"Disk: {pb:.1f}% → {pa:.1f}% (threshold {pressure_threshold:.1f}%)",
-        f"Storage: {status}",
-        f"Deleted: {deleted} (images={imgs}, non-images={non_imgs})",
-        f"Freed: {freed:.2f} GB",
-        f"Duration: {duration}s",
-        f"Result: {result}",
-    ]
-    
-    return "\n".join(lines)
+    if deleted == 0:
+        return f"Disk usage: {pb:.1f}% (threshold {pressure_threshold:.1f}%). No deletions. Freed: {freed:.2f} GB."
+    else:
+        return f"Disk usage: {pb:.1f}%→{pa:.1f}% (threshold {pressure_threshold:.1f}%). Deleted: {deleted}. Freed: {freed:.2f} GB."

@@ -145,26 +145,37 @@ class PersonalityRenderer:
 
     def _build_user_prompt(self, summary_payload: Dict[str, Any]) -> str:
         """Build AI prompt for prefix generation only."""
+        mode = summary_payload.get("mode", "unknown")
         actions = summary_payload.get("actions") or {}
         deleted = actions.get("deleted_count", 0)
         storage_cat = self._get_storage_category(summary_payload)
         
-        if deleted == 0:
-            return (
-                f"You are Irina. You reviewed the server logs. Storage is {storage_cat}.\n"
-                "Write ONE short sentence (max 110 chars).\n"
-                "Meaning: You reviewed logs and concluded no action needed; nothing removed.\n"
-                "No digits, no percentages, no GB, no timestamps, no quotes, no emojis.\n"
-                "Do not add a second sentence.\n"
-            )
+        if mode == "pressure":
+            if deleted == 0:
+                return (
+                    f"You are Irina. Storage is {storage_cat}. Write 2-6 words concluding logs are clear.\n"
+                    "No digits, no percentages, no GB, no timestamps, no quotes.\n"
+                )
+            else:
+                return (
+                    f"You are Irina. Storage was {storage_cat}. Write 2-6 words concluding cleanup performed.\n"
+                    "No digits, no percentages, no GB, no timestamps, no quotes.\n"
+                )
         else:
-            return (
-                f"You are Irina. You reviewed the server logs. Storage was {storage_cat}.\n"
-                "Write ONE short sentence (max 110 chars).\n"
-                "Meaning: You reviewed logs and cleanup was performed.\n"
-                "No digits, no percentages, no GB, no timestamps, no quotes, no emojis.\n"
-                "Do not add a second sentence.\n"
-            )
+            if deleted == 0:
+                return (
+                    f"You are Irina. You reviewed logs. Storage is {storage_cat}.\n"
+                    "Write ONE short sentence (max 110 chars).\n"
+                    "Meaning: Reviewed logs, no action needed.\n"
+                    "No digits, no percentages, no GB, no timestamps, no quotes.\n"
+                )
+            else:
+                return (
+                    f"You are Irina. You reviewed logs. Storage was {storage_cat}.\n"
+                    "Write ONE short sentence (max 110 chars).\n"
+                    "Meaning: Reviewed logs, retention sweep performed.\n"
+                    "No digits, no percentages, no GB, no timestamps, no quotes.\n"
+                )
 
     async def render(self, summary_payload: Dict[str, Any]) -> Optional[str]:
         if self._rate_limited():

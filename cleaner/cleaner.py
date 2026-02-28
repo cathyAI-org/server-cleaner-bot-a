@@ -287,6 +287,7 @@ async def run_retention(
                 )
                 ai_prefix = await renderer.render(summary_payload)
                 if ai_prefix:
+                    ai_prefix = ai_prefix.strip().strip('"').strip("'").strip()
                     print("AI render: used")
                 else:
                     print("AI render: empty -> stats only")
@@ -294,7 +295,7 @@ async def run_retention(
                 print(f"AI render failed -> stats only: {e}")
         
         if ai_prefix:
-            message = f"{prefix}{ai_prefix}\n{stats}"
+            message = f"{prefix}{ai_prefix}\n\n{stats}"
         else:
             message = f"{prefix}{stats}"
         
@@ -382,16 +383,18 @@ async def run_pressure(
                     )
                     ai_prefix = await renderer.render(summary_payload)
                     if ai_prefix:
+                        ai_prefix = ai_prefix.strip().strip('"').strip("'").strip()
                         print("AI render: used")
                     else:
-                        print("AI render: empty -> stats only")
+                        print("AI render: empty -> fallback")
                 except Exception as e:
-                    print(f"AI render failed -> stats only: {e}")
+                    print(f"AI render failed -> fallback: {e}")
             
             if ai_prefix:
-                message = f"{prefix}{ai_prefix}\n{stats}"
+                message = f"{prefix}{ai_prefix} {stats}"
             else:
-                message = f"{prefix}{stats}"
+                fallback = f"Pressure cleanup: disk={disk_before:.1f}% < threshold={policy.pressure*100:.1f}%, no action"
+                message = f"{prefix}{fallback}"
             
             try:
                 await send_text(session, notifications_room, message)
@@ -508,16 +511,21 @@ async def run_pressure(
                 )
                 ai_prefix = await renderer.render(summary_payload)
                 if ai_prefix:
+                    ai_prefix = ai_prefix.strip().strip('"').strip("'").strip()
                     print("AI render: used")
                 else:
-                    print("AI render: empty -> stats only")
+                    print("AI render: empty -> fallback")
             except Exception as e:
-                print(f"AI render failed -> stats only: {e}")
+                print(f"AI render failed -> fallback: {e}")
         
         if ai_prefix:
-            message = f"{prefix}{ai_prefix}\n{stats}"
+            message = f"{prefix}{ai_prefix} {stats}"
         else:
-            message = f"{prefix}{stats}"
+            fallback = (
+                f"Pressure cleanup: disk={disk_before:.1f}%→{disk_after:.1f}% "
+                f"(threshold={policy.pressure*100:.1f}%), deleted={deleted}, freed_gb={freed / 1024 / 1024 / 1024:.2f}"
+            )
+            message = f"{prefix}{fallback}"
         
         try:
             await send_text(session, notifications_room, message)
