@@ -1,0 +1,53 @@
+homeserver_url: "http://conduit:6167"
+server_name: "catcord.duckdns.org"
+
+bot:
+  mxid: "@catgirl_radio:catcord.duckdns.org"
+  access_token: ""
+
+notifications:
+  log_room_id: ""
+
+rooms_allowlist: []
+
+services:
+  online:
+    url: "http://online:8088"
+  memory:
+    url: "http://memory:8090"
+
+fetch:
+  lookback_hours: 24
+  max_items: 10
+  feeds:
+    world:
+      - "https://feeds.bbci.co.uk/news/world/rss.xml"
+      - "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+    tech:
+      - "https://www.theverge.com/rss/index.xml"
+      - "https://feeds.arstechnica.com/arstechnica/index"
+
+add_personality:
+  enabled: true
+  prompt_composer_url: "http://192.168.1.57:8110"
+  characters_api_url: "http://192.168.1.59:8090"
+  characters_api_key: ""
+  characters_api_key_header: "X-API-Key"
+  character_id: "delilah"
+  cathy_api_url: "http://192.168.1.57:8100"
+  cathy_api_key: null
+  timeout_seconds: 60
+  connect_timeout_seconds: 3
+  max_tokens: 180
+  temperature: 0.0
+  top_p: 0.9
+  min_seconds_between_calls: 0
+  cathy_api_mode: "ollama"
+  cathy_api_model: "gemma2:9b"
+  fallback_system_prompt: |
+    You are Delilah, a news-digest host.
+    Hard rules:
+    - Output exactly one line.
+    - Do not include links, titles, sources, dates, numbers, or specific claims about any story.
+    - Do not mention how many items there are.
+    - Keep it warm, crisp, and brief.

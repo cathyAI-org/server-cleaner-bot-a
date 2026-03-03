@@ -1,6 +1,40 @@
 version: "3.8"
 
 services:
+  online:
+    build:
+      context: ./services/online
+      dockerfile: Dockerfile
+    image: catcord/online:latest
+    container_name: online_service
+    restart: unless-stopped
+    volumes:
+      - /var/lib/catcord/online:/state:rw
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  memory:
+    build:
+      context: ./services/memory
+      dockerfile: Dockerfile
+    image: catcord/memory:latest
+    container_name: memory_service
+    restart: unless-stopped
+    volumes:
+      - /var/lib/catcord/memory:/state:rw
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   cleaner:
     build:
       context: ./cleaner
@@ -12,6 +46,19 @@ services:
       - ./cleaner/config.yaml:/config/config.yaml:ro
       - /var/lib/catcord/cleaner:/state:rw
       - /srv/media:/srv/media:rw
+    networks:
+      - internal
+
+  news:
+    build:
+      context: ./news
+      dockerfile: Dockerfile
+    image: catcord/news:latest
+    container_name: news_bot
+    restart: "no"
+    volumes:
+      - ./news/config.yaml:/config/config.yaml:ro
+      - /var/lib/catcord/news:/state:rw
     networks:
       - internal
 

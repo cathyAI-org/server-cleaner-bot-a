@@ -8,9 +8,17 @@ Matrix bot framework with automated media cleanup service.
 bots/
 ├── framework/          # Shared Python package
 │   └── catcord_bots/  # Matrix client, config, personality, state
+├── services/          # Reusable backend services
+│   ├── online/        # RSS/Atom fetch + URL preview service
+│   └── memory/        # RAG/memory storage service
 ├── cleaner/           # Media cleanup bot
 │   ├── main.py        # Entry point
 │   ├── cleaner.py     # Cleanup logic
+│   └── config.yaml    # Configuration
+├── news/              # News digest bot
+│   ├── main.py        # Entry point
+│   ├── format.py      # Deterministic formatting
+│   ├── state.py       # Deduplication
 │   └── config.yaml    # Configuration
 └── tests/             # Test suite
 ```
@@ -19,9 +27,13 @@ bots/
 
 - **Matrix Integration**: Async Matrix client with auto-join and messaging
 - **Media Cleanup**: Retention and pressure-based cleanup modes
+- **News Digest**: RSS/Atom feed aggregation with AI-generated intros
+- **Online Service**: Reusable RSS/Atom fetch with caching and rate limiting
+- **Memory Service**: RAG/memory storage for cross-bot context
 - **AI Personality**: Optional AI-generated status prefixes via prompt-composer
 - **Deduplication**: Prevents duplicate notifications using payload fingerprints
 - **State Management**: Tracks last notification to avoid spam
+- **Deterministic Facts**: LLM only generates intros, never invents news items
 
 ## Setup
 
@@ -30,7 +42,10 @@ bots/
 ```bash
 ./setup.sh  # Choose option 1
 docker build -t catcord-bots-framework:latest -f framework/Dockerfile framework
+docker-compose build online
+docker-compose build memory
 docker-compose build cleaner
+docker-compose build news
 ```
 
 ### Local (Development)
@@ -103,6 +118,27 @@ Use systemd timers or cron:
 
 # Frequent pressure monitoring every 2 minutes
 */2 * * * * docker-compose run --rm cleaner --config /config/config.yaml --mode pressure
+```
+
+### News Bot
+
+**Daily Digest**: Fetch and post news from configured RSS/Atom feeds
+
+```bash
+docker-compose run --rm news --config /config/config.yaml --mode digest --dry-run
+docker-compose run --rm news --config /config/config.yaml --mode digest
+```
+
+**Flags**:
+- `--mode digest`: Run daily digest (required)
+- `--dry-run`: Simulate without sending
+- `--force-notify`: Force send even if deduplicated
+
+**Scheduling**: Use systemd timer or cron for daily digest:
+
+```bash
+# Daily digest at 08:00
+0 8 * * * docker-compose run --rm news --config /config/config.yaml --mode digest --force-notify
 ```
 
 ## AI Personality
@@ -180,6 +216,45 @@ Payload fingerprinting and deduplication logic.
 
 ### catcord_bots.formatting
 Message formatting for retention and pressure reports.
+
+## Services
+
+### catcord-online
+
+Reusable online fetch service for RSS/Atom feeds and URL previews.
+
+**Features:**
+- RSS/Atom feed fetching with ETag/Last-Modified caching
+- Rate limiting and allowlist enforcement
+- Deterministic facts-only JSON output
+- Shared across all bots
+
+**Endpoints:**
+- `GET /health` - Health check
+- `POST /v1/rss/fetch` - Fetch RSS/Atom feeds
+
+**Storage:** `/var/lib/catcord/online/cache.sqlite3`
+
+### catcord-memory
+
+Memory/RAG service for event storage and retrieval.
+
+**Features:**
+- Event ingestion from multiple sources (Matrix, Chainlit, bots)
+- Person-aware storage with identity resolution
+- Query by person, character, room, session
+- Future: Vector embeddings and semantic search
+
+**Endpoints:**
+- `GET /health` - Health check
+- `POST /v1/events/ingest` - Ingest event
+- `POST /v1/memory/query` - Query memory
+
+**Storage:** `/var/lib/catcord/memory/db.sqlite3`
+
+### Service Architecture
+
+Services are internal-only (not exposed outside docker network) and do not require authentication. Security is provided by docker network isolation.
 
 ## License
 
