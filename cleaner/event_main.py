@@ -11,10 +11,25 @@ from mautrix.types import (
 from catcord_bots.config import load_yaml, FrameworkConfig
 from catcord_bots.matrix import create_client, whoami
 from catcord_bots.invites import join_all_invites
-from cleaner import (
-    init_db, log_upload, get_disk_usage_ratio, Policy,
-    run_pressure, PersonalityConfig
-)
+try:
+    from .cleaner import (
+        init_db,
+        log_upload,
+        get_disk_usage_ratio,
+        Policy,
+        run_pressure,
+        PersonalityConfig,
+    )
+except ImportError:
+    from cleaner import (
+        init_db,
+        log_upload,
+        get_disk_usage_ratio,
+        Policy,
+        run_pressure,
+        PersonalityConfig,
+    )
+
 
 
 conn = None
