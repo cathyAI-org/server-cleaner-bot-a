@@ -1,6 +1,10 @@
 """Core functionality tests for PersonalityRenderer."""
 import pytest
-from catcord_bots.personality import PersonalityRenderer, _FALLBACK_BANK
+from catcord_bots.personality import (
+    PersonalityRenderer,
+    _FALLBACK_BANK,
+    _STATUS_PROMPT_HINTS,
+)
 
 
 class TestPersonalityRenderer:
@@ -30,6 +34,39 @@ class TestPersonalityRenderer:
         assert renderer._normalize_prefix('"test"') == "test"
         assert renderer._normalize_prefix("'test'") == "test"
         assert renderer._normalize_prefix("test") == "test"
+
+    # -- status label derivation ------------------------------------
+
+    def test_derive_cleanup_done(self) -> None:
+        """Test deleted_count > 0 yields cleanup_done."""
+        assert PersonalityRenderer._derive_status_label(
+            {"actions": {"deleted_count": 3}, "storage_status": "healthy"}
+        ) == "cleanup_done"
+
+    def test_derive_tight_no_action(self) -> None:
+        """Test tight storage with no deletions yields tight_no_action."""
+        for status in ("tight", "warning", "pressure", "critical"):
+            assert PersonalityRenderer._derive_status_label(
+                {"actions": {"deleted_count": 0}, "storage_status": status}
+            ) == "tight_no_action"
+
+    def test_derive_retention_nothing_to_do(self) -> None:
+        """Test retention mode with zero candidates yields
+        retention_nothing_to_do."""
+        assert PersonalityRenderer._derive_status_label(
+            {
+                "mode": "retention",
+                "candidates_count": 0,
+                "actions": {"deleted_count": 0},
+                "storage_status": "healthy",
+            }
+        ) == "retention_nothing_to_do"
+
+    def test_derive_healthy_no_action(self) -> None:
+        """Test default healthy path."""
+        assert PersonalityRenderer._derive_status_label(
+            {"actions": {"deleted_count": 0}, "storage_status": "healthy"}
+        ) == "healthy_no_action"
 
     # -- validation --------------------------------------------------
 
@@ -109,6 +146,18 @@ class TestPersonalityRenderer:
         result = renderer._get_fallback_prefix(payload)
         assert result in _FALLBACK_BANK["cleanup_done"]
 
+    def test_fallback_prefix_retention_nothing_to_do(self) -> None:
+        """Test fallback selects from retention_nothing_to_do bucket."""
+        renderer = self._make_renderer()
+        payload = {
+            "mode": "retention",
+            "candidates_count": 0,
+            "actions": {"deleted_count": 0},
+            "storage_status": "healthy",
+        }
+        result = renderer._get_fallback_prefix(payload)
+        assert result in _FALLBACK_BANK["retention_nothing_to_do"]
+
     def test_fallback_prefix_deterministic_for_same_payload(
         self,
     ) -> None:
@@ -134,6 +183,12 @@ class TestPersonalityRenderer:
             }
             results.add(renderer._get_fallback_prefix(payload))
         assert len(results) > 1
+
+    # -- status prompt hints ----------------------------------------
+
+    def test_status_prompt_hints_cover_all_buckets(self) -> None:
+        """Every fallback bucket has a matching prompt hint."""
+        assert set(_FALLBACK_BANK) == set(_STATUS_PROMPT_HINTS)
 
     # -- rate limiting -----------------------------------------------
 

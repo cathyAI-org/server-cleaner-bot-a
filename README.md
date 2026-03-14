@@ -178,6 +178,7 @@ AI prefixes are validated to ensure:
 If AI fails or is disabled, a status-based phrase bank provides variety while remaining deterministic for the same payload:
 
 - **No deletions + healthy storage**: "Logs clear, Master.", "All clear, Master.", "Storage looks healthy, Master.", etc.
+- **Retention check, nothing expired**: "Nothing expired, Master.", "No stale media found, Master.", etc.
 - **No deletions + tight storage**: "Storage getting tight, Master.", "Usage is climbing, Master.", etc.
 - **Deletions occurred**: "Cleanup completed, Master.", "Maintenance complete, Master.", etc.
 

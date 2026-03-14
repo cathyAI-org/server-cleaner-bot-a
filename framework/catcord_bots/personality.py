@@ -15,6 +15,12 @@ _FALLBACK_BANK: Dict[str, List[str]] = {
         "No action needed, Master.",
         "Everything looks orderly, Master.",
     ],
+    "retention_nothing_to_do": [
+        "Nothing expired, Master.",
+        "No stale media found, Master.",
+        "Retention check complete, Master.",
+        "All media within policy, Master.",
+    ],
     "tight_no_action": [
         "Storage getting tight, Master.",
         "Usage is climbing, Master.",
@@ -26,6 +32,34 @@ _FALLBACK_BANK: Dict[str, List[str]] = {
         "Expired media handled, Master.",
         "Cleanup executed, Master.",
     ],
+}
+
+_STATUS_PROMPT_HINTS: Dict[str, str] = {
+    "healthy_no_action": (
+        "Status: healthy_no_action — storage is healthy, nothing was deleted.\n"
+        "Do NOT imply cleanup happened.\n"
+        "Good: 'All clear, Master.' / 'Storage looks healthy, Master.'"
+    ),
+    "retention_nothing_to_do": (
+        "Status: retention_nothing_to_do — retention check ran, "
+        "no files were old enough to delete.\n"
+        "Do NOT imply files were removed.\n"
+        "Good: 'Nothing expired, Master.' / "
+        "'No stale media found, Master.'"
+    ),
+    "tight_no_action": (
+        "Status: tight_no_action — disk usage is high but no "
+        "cleanup was triggered yet.\n"
+        "Do NOT imply cleanup happened.\n"
+        "Good: 'Storage getting tight, Master.' / "
+        "'Capacity is tightening, Master.'"
+    ),
+    "cleanup_done": (
+        "Status: cleanup_done — files were actually deleted.\n"
+        "You MAY mention cleanup or removal.\n"
+        "Good: 'Cleanup completed, Master.' / "
+        "'Expired media removed, Master.'"
+    ),
 }
 
 
@@ -90,8 +124,7 @@ class PersonalityRenderer:
         self.cathy_api_mode = cathy_api_mode
         self.cathy_api_model = cathy_api_model
         self._last_call_ts: float = 0.0
-        self._cached_prompt: Optional[str] = None
-        self._cached_etag: Optional[str] = None
+
 
     def _rate_limited(self) -> bool:
         """Check if rate limit prevents API call.
@@ -105,9 +138,38 @@ class PersonalityRenderer:
         self._last_call_ts = now
         return False
 
+    @staticmethod
+    def _derive_status_label(
+        summary_payload: Dict[str, Any],
+    ) -> str:
+        """Derive a status label from the summary payload.
+
+        :param summary_payload: Summary data
+        :type summary_payload: Dict[str, Any]
+        :return: One of the keys in ``_FALLBACK_BANK``
+        :rtype: str
+        """
+        deleted = (
+            summary_payload.get("actions", {})
+            .get("deleted_count", 0)
+        )
+        if deleted > 0:
+            return "cleanup_done"
+
+        storage = summary_payload.get("storage_status", "")
+        if storage in ("tight", "warning", "pressure", "critical"):
+            return "tight_no_action"
+
+        mode = summary_payload.get("mode", "")
+        candidates = summary_payload.get("candidates_count", -1)
+        if mode == "retention" and candidates == 0:
+            return "retention_nothing_to_do"
+
+        return "healthy_no_action"
+
     def _infer_task(self, summary_payload: Dict[str, Any]) -> str:
         """Infer task from payload mode (for backward compatibility).
-        
+
         :param summary_payload: Summary data
         :type summary_payload: Dict[str, Any]
         :return: Task identifier
@@ -264,12 +326,7 @@ class PersonalityRenderer:
         deleted_count = actions.get("deleted_count", 0)
         storage_status = summary_payload.get("storage_status", "unknown")
 
-        if deleted_count > 0:
-            bucket = "cleanup_done"
-        elif storage_status in ["tight", "warning"]:
-            bucket = "tight_no_action"
-        else:
-            bucket = "healthy_no_action"
+        bucket = self._derive_status_label(summary_payload)
 
         phrases = _FALLBACK_BANK[bucket]
         digest = hashlib.md5(
@@ -376,16 +433,24 @@ class PersonalityRenderer:
                     if not system_text:
                         print("PersonalityRenderer: empty prompt bundle, skipping AI", flush=True)
                         return None
+                    status_label = self._derive_status_label(
+                        summary_payload
+                    )
+                    hint = _STATUS_PROMPT_HINTS.get(
+                        status_label,
+                        _STATUS_PROMPT_HINTS["healthy_no_action"],
+                    )
                     messages = [
                         {"role": "system", "content": system_text},
                         {"role": "user", "content": (
-                            "Write ONE short prefix sentence (3-10 words) confirming you reviewed logs and stating the conclusion. "
-                            "Address me as 'Master'. "
-                            "No digits, no numbers, no timestamps, no percentages, no GB. "
-                            "Must NOT mention being a bot/AI, must NOT mention Matrix, room, system prompt, rules, multiple people, or responding. "
-                            "Must NOT ask questions. Must NOT include quotes. "
-                            "Examples: 'Logs clear, Master.' 'Storage getting tight, Master.' 'Cleanup executed, Master.' 'All systems nominal, Master.' 'Maintenance complete, Master.'"
-                        )}
+                            "Write ONE short prefix sentence, "
+                            "3-8 words.\n"
+                            "Address me as 'Master'.\n"
+                            f"{hint}\n"
+                            "Rules: no digits, no timestamps, "
+                            "no percentages, no GB, no quotes, "
+                            "no questions."
+                        )},
                     ]
                 
                 for attempt in range(2):
