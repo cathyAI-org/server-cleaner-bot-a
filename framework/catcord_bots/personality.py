@@ -1,10 +1,32 @@
 from __future__ import annotations
+import hashlib
 import json
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+
+_FALLBACK_BANK: Dict[str, List[str]] = {
+    "healthy_no_action": [
+        "Logs clear, Master.",
+        "All clear, Master.",
+        "Storage looks healthy, Master.",
+        "No action needed, Master.",
+        "Everything looks orderly, Master.",
+    ],
+    "tight_no_action": [
+        "Storage getting tight, Master.",
+        "Usage is climbing, Master.",
+        "Capacity is tightening, Master.",
+    ],
+    "cleanup_done": [
+        "Cleanup completed, Master.",
+        "Maintenance complete, Master.",
+        "Expired media handled, Master.",
+        "Cleanup executed, Master.",
+    ],
+}
 
 
 class PersonalityRenderer:
@@ -177,7 +199,8 @@ class PersonalityRenderer:
                     "stream": False,
                     "messages": messages,
                     "options": {
-                        "temperature": 0.0,
+                        "temperature": self.temperature,
+                        "top_p": self.top_p,
                         "num_predict": 32,
                         "num_ctx": 384,
                         "stop": ["\n"],
@@ -227,8 +250,11 @@ class PersonalityRenderer:
             return None
 
     def _get_fallback_prefix(self, summary_payload: Dict[str, Any]) -> str:
-        """Get deterministic fallback prefix based on payload.
-        
+        """Get deterministic fallback prefix from status-based bank.
+
+        Uses a hash of the payload to pick a phrase, giving variety
+        across runs while remaining deterministic for the same input.
+
         :param summary_payload: Summary data
         :type summary_payload: Dict[str, Any]
         :return: Fallback prefix
@@ -237,18 +263,34 @@ class PersonalityRenderer:
         actions = summary_payload.get("actions", {})
         deleted_count = actions.get("deleted_count", 0)
         storage_status = summary_payload.get("storage_status", "unknown")
-        
-        if deleted_count == 0:
-            if storage_status in ["tight", "warning"]:
-                return "Storage getting tight, Master."
-            return "Logs clear, Master."
-        return "Cleanup executed, Master."
 
-    def _validate_prefix(self, text: str) -> Tuple[bool, str]:
+        if deleted_count > 0:
+            bucket = "cleanup_done"
+        elif storage_status in ["tight", "warning"]:
+            bucket = "tight_no_action"
+        else:
+            bucket = "healthy_no_action"
+
+        phrases = _FALLBACK_BANK[bucket]
+        digest = hashlib.md5(
+            json.dumps(summary_payload, sort_keys=True).encode()
+        ).hexdigest()
+        idx = int(digest, 16) % len(phrases)
+        return phrases[idx]
+
+    def _validate_prefix(
+        self,
+        text: str,
+        deleted_count: int = 0,
+    ) -> Tuple[bool, str]:
         """Validate AI prefix against safety rules.
-        
+
+        Cleanup wording is only allowed when *deleted_count > 0*.
+
         :param text: Prefix text to validate
         :type text: str
+        :param deleted_count: Number of items deleted in this run
+        :type deleted_count: int
         :return: Tuple of (is_valid, rejection_reason)
         :rtype: Tuple[bool, str]
         """
@@ -266,7 +308,11 @@ class PersonalityRenderer:
         if re.search(r"[.!?].+[.!?]", t):
             return False, "multiple sentences"
 
-        meta_phrases = ["matrix", "room", "multiple people", "responding", "system", "prompt", "rules", "as an ai", "i am a", "i'm a", "bot", "assistant"]
+        meta_phrases = [
+            "matrix", "room", "multiple people", "responding",
+            "system", "prompt", "rules", "as an ai",
+            "i am a", "i'm a", "bot", "assistant",
+        ]
         for phrase in meta_phrases:
             if phrase in tlow:
                 return False, f"meta/self-description '{phrase}'"
@@ -275,7 +321,10 @@ class PersonalityRenderer:
         if any(tlow.startswith(x) for x in bad_ack):
             return False, "acknowledgement/assistant filler"
 
-        banned = ["today", "yesterday", "uptime", "since", "operational since", "elapsed"]
+        banned = [
+            "today", "yesterday", "uptime",
+            "since", "operational since", "elapsed",
+        ]
         for b in banned:
             if re.search(rf"\b{re.escape(b)}\b", tlow):
                 return False, f"banned phrase '{b}'"
@@ -283,8 +332,10 @@ class PersonalityRenderer:
         if re.search(r"\d", t):
             return False, "contains digits"
 
-        bad_actions = ["deleted", "removed", "purged", "redacted", "cleared"]
-        if any(w in tlow for w in bad_actions):
+        action_words = [
+            "deleted", "removed", "purged", "redacted", "cleared",
+        ]
+        if deleted_count == 0 and any(w in tlow for w in action_words):
             return False, "claims deletion"
 
         return True, ""
@@ -350,7 +401,12 @@ class PersonalityRenderer:
                     normalized = self._normalize_prefix(raw_prefix)
                     print(f"PersonalityRenderer: normalized={normalized!r}", flush=True)
                     
-                    ok, reason = self._validate_prefix(normalized)
+                    deleted_count = summary_payload.get(
+                        "actions", {}
+                    ).get("deleted_count", 0)
+                    ok, reason = self._validate_prefix(
+                        normalized, deleted_count=deleted_count
+                    )
                     print(f"PersonalityRenderer: validation={ok} reason={reason!r}", flush=True)
                     
                     if not ok:

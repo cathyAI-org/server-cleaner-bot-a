@@ -171,14 +171,15 @@ AI prefixes are validated to ensure:
 - No digits, quotes, newlines
 - No meta-descriptions (bot, Matrix, room, etc.)
 - No temporal references (today, yesterday, uptime)
-- No deletion claims (deleted, removed, purged)
+- Context-aware action-word filtering: deletion claims (deleted, removed, purged) are only rejected when no files were actually deleted
 
 ### Fallback Prefixes
 
-If AI fails or is disabled, deterministic fallbacks are used:
-- No deletions + healthy storage: "Logs clear, Master."
-- No deletions + tight storage: "Storage getting tight, Master."
-- Deletions occurred: "Cleanup executed, Master."
+If AI fails or is disabled, a status-based phrase bank provides variety while remaining deterministic for the same payload:
+
+- **No deletions + healthy storage**: "Logs clear, Master.", "All clear, Master.", "Storage looks healthy, Master.", etc.
+- **No deletions + tight storage**: "Storage getting tight, Master.", "Usage is climbing, Master.", etc.
+- **Deletions occurred**: "Cleanup completed, Master.", "Maintenance complete, Master.", etc.
 
 ## Deduplication
 
